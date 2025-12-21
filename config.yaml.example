@@ -1,0 +1,56 @@
+# InfluxDB Configuration
+influxdb:
+  url: "http://localhost:8086"
+  token: "your-influxdb-token-here"
+  org: "your-org"
+  bucket: "your-bucket"
+
+# Output Configuration
+output:
+  directory: "./output"
+  format: "jpg"
+  dpi: 100
+
+# Graph Definitions
+graphs:
+  - name: "temperature_graph"
+    query: |
+      import "date"
+      from(bucket: "your-bucket")
+        |> range(start: date.truncate(t: now(), unit: 1d), stop: date.add(d: 2d, to: date.truncate(t: now(), unit: 1d)))
+        |> filter(fn: (r) => r["_measurement"] == "temperature")
+        |> filter(fn: (r) => r["_field"] == "value")
+        |> yield(name: "mean")
+    filename: "temperature.jpg"
+    size:
+      width: 640
+      height: 400
+    graph_type: "line"  # Options: "line" or "bar"
+    font_size:
+      title: 16
+      axis_label: 12
+      tick_label: 10
+    title: "Temperature (Last 24h)"
+    ylabel: "Temperature (°C)"
+    xlabel: "Time"
+    
+  - name: "humidity_graph"
+    query: |
+      import "date"
+      from(bucket: "your-bucket")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r["_measurement"] == "humidity")
+        |> filter(fn: (r) => r["_field"] == "value")
+    filename: "humidity.jpg"
+    size:
+      width: 800
+      height: 480
+    graph_type: "bar"  # Options: "line" or "bar"
+    font_size:
+      title: 14
+      axis_label: 10
+      tick_label: 9
+    title: "Humidity (Last 24h)"
+    ylabel: "Humidity (%)"
+    # xlabel is optional - uncomment to add
+    # xlabel: "Time"
