@@ -98,7 +98,7 @@ class GraphMaker:
         plt.yticks(fontsize=tick_label_size)
         
         # Grid for better readability
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, alpha=0.3, color='red')
         
         # Tight layout to prevent label cutoff
         plt.tight_layout()
