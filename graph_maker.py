@@ -6,6 +6,7 @@ Graph Maker - Generate JPG graphs from InfluxDB data for e-paper display
 import os
 import yaml
 from datetime import datetime
+import pytz
 from influxdb_client import InfluxDBClient
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -17,6 +18,9 @@ class GraphMaker:
         """Initialize GraphMaker with configuration file"""
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
+
+        # Timezone used for plotting (defaults to Finland)
+        self.tz = pytz.timezone(self.config.get('timezone', 'Europe/Helsinki'))
         
         # Initialize InfluxDB client
         self.client = InfluxDBClient(
@@ -40,7 +44,12 @@ class GraphMaker:
             
             for table in tables:
                 for record in table.records:
-                    timestamps.append(record.get_time())
+                    # Convert UTC timestamp to Finland timezone
+                    utc_time = record.get_time()
+                    if utc_time.tzinfo is None:
+                        utc_time = pytz.utc.localize(utc_time)
+                    local_time = utc_time.astimezone(self.tz)
+                    timestamps.append(local_time)
                     values.append(record.get_value())
             
             return timestamps, values
@@ -73,10 +82,25 @@ class GraphMaker:
         
         # Get graph type (default to line)
         graph_type = graph_config.get('graph_type', 'line')
+
+        # For bar charts, try to infer the interval from the data so bars span
+        # the full interval starting at the timestamp (e.g., 00:00->00:15).
+        bar_width_days = (15 * 60) / 86400  # default: 15 minutes
+        if graph_type == 'bar' and len(timestamps) > 1:
+            deltas = []
+            for t1, t2 in zip(timestamps, timestamps[1:]):
+                dt = (t2 - t1).total_seconds()
+                if dt > 0:
+                    deltas.append(dt)
+            if deltas:
+                deltas.sort()
+                median_dt = deltas[len(deltas) // 2]
+                bar_width_days = median_dt / 86400
         
         # Plot the data based on graph type
         if graph_type == 'bar':
-            ax.bar(timestamps, values, width=0.02)  # width in days for datetime x-axis
+            # Align bars to the interval start time (left edge at timestamp)
+            ax.bar(timestamps, values, width=bar_width_days, align='edge')
         else:  # default to line
             ax.plot(timestamps, values, linewidth=2)
         
@@ -91,9 +115,25 @@ class GraphMaker:
         if 'ylabel' in graph_config and graph_config['ylabel']:
             ax.set_ylabel(graph_config['ylabel'], fontsize=axis_label_size)
         
-        # Format x-axis for dates
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
+        # Format x-axis for dates (explicit timezone to avoid UTC offset)
+        try:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M', tz=self.tz))
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=4, tz=self.tz))
+        except TypeError:
+            # Fallback for older matplotlib: plot naive local times
+            timestamps = [ts.replace(tzinfo=None) for ts in timestamps]
+            ax.clear()
+            if graph_type == 'bar':
+                ax.bar(timestamps, values, width=bar_width_days, align='edge')
+            else:
+                ax.plot(timestamps, values, linewidth=2)
+            ax.set_title(graph_config['title'], fontsize=title_size, fontweight='bold')
+            if 'xlabel' in graph_config and graph_config['xlabel']:
+                ax.set_xlabel(graph_config['xlabel'], fontsize=axis_label_size)
+            if 'ylabel' in graph_config and graph_config['ylabel']:
+                ax.set_ylabel(graph_config['ylabel'], fontsize=axis_label_size)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
         plt.xticks(rotation=45, fontsize=tick_label_size)
         plt.yticks(fontsize=tick_label_size)
         
